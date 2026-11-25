@@ -1,1 +1,133 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ร้านแปรงสีฟัน</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 24px auto; padding: 0 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; }
+    .card img { width: 100%; height: 150px; object-fit: cover; border-radius: 6px; }
+    .label-box { border: 2px dashed #333; padding: 16px; margin-top: 16px; background: #fafafa; }
+    input, textarea, button { width: 100%; padding: 8px; margin-top: 6px; box-sizing: border-box; }
+    button { cursor: pointer; background: #111; color: #fff; border: none; border-radius: 6px; }
+    @media print { .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <h1>ขายแปรงสีฟัน</h1>
 
+  <h2>1. เลือกสินค้า</h2>
+  <div id="products" class="grid">กำลังโหลดสินค้า...</div>
+
+  <h2>2. หยิบสินค้า & แพ็กสินค้า</h2>
+  <div id="packList">ยังไม่ได้หยิบสินค้า</div>
+
+  <h2 class="no-print">3. กรอกข้อมูลจ่าหน้าพัสดุ</h2>
+  <form id="labelForm" class="no-print">
+    <input id="sender" placeholder="ผู้ส่ง (เช่น ร้านแปรงสีฟัน 08x-xxx-xxxx)" required />
+    <input id="buyer" placeholder="ชื่อผู้รับ" required />
+    <input id="phone" placeholder="เบอร์โทรผู้รับ" required />
+    <textarea id="address" placeholder="ที่อยู่จัดส่ง" required></textarea>
+    <button type="submit">สร้างจ่าหน้าพัสดุพร้อมแพ็ก</button>
+  </form>
+
+  <div id="shippingLabel" class="label-box"></div>
+  <button onclick="window.print()" class="no-print" style="margin-top:10px;background:#444;">พิมพ์จ่าหน้าพัสดุ</button>
+
+  <script>
+    const SHEET_CSV_URL = "วางลิงก์_CSV_ของ_GOOGLE_SHEETS_ที่นี่";
+    let cart = [];
+
+    function parseCSVLine(line) {
+      return line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/^"|"$/g, "").trim()) || [];
+    }
+
+    async function loadProducts() {
+      try {
+        const res = await fetch(SHEET_CSV_URL);
+        const text = await res.text();
+        const lines = text.trim().split("\n").slice(1);
+
+        const el = document.getElementById("products");
+        el.innerHTML = lines.map(line => {
+          const [sku, name, price, image] = parseCSVLine(line);
+          return `
+            <div class="card">
+              <img src="${image}" alt="${name}" />
+              <h3>${name}</h3>
+              <p>SKU: <strong>${sku}</strong> | ราคา: <strong>฿${price}</strong></p>
+              <button onclick="addItem('${sku}', '${name}', ${Number(price) || 0})">หยิบสินค้า</button>
+            </div>
+          `;
+        }).join("");
+      } catch (err) {
+        document.getElementById("products").innerText = "โหลดข้อมูลไม่สำเร็จ ตรวจสอบลิงก์ CSV อีกครั้ง";
+      }
+    }
+
+    function addItem(sku, name, price) {
+      const found = cart.find(item => item.sku === sku);
+      if (found) found.qty += 1;
+      else cart.push({ sku, name, price, qty: 1 });
+      renderPack();
+      renderLabel();
+    }
+
+    function changeQty(sku, delta) {
+      const idx = cart.findIndex(item => item.sku === sku);
+      if (idx === -1) return;
+      cart[idx].qty += delta;
+      if (cart[idx].qty <= 0) cart.splice(idx, 1);
+      renderPack();
+      renderLabel();
+    }
+
+    function renderPack() {
+      const el = document.getElementById("packList");
+      if (!cart.length) {
+        el.innerHTML = "<p>ยังไม่ได้หยิบสินค้า</p>";
+        return;
+      }
+      const total = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
+      el.innerHTML = cart.map(i => `
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0;">
+          <span><strong>[${i.sku}]</strong> ${i.name} (฿${i.price})</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button style="width:auto;padding:4px 10px;" onclick="changeQty('${i.sku}', -1)">-</button>
+            <span>${i.qty}</span>
+            <button style="width:auto;padding:4px 10px;" onclick="changeQty('${i.sku}', 1)">+</button>
+          </div>
+        </div>
+      `).join("") + `<p><strong>ยอดรวม: ฿${total}</strong></p>`;
+    }
+
+    function renderLabel() {
+      const sender = document.getElementById("sender").value || "-";
+      const buyer = document.getElementById("buyer").value || "-";
+      const phone = document.getElementById("phone").value || "-";
+      const address = document.getElementById("address").value || "-";
+      const itemsText = cart.length
+        ? cart.map(i => `<li>${i.sku} — ${i.name} x ${i.qty}</li>`).join("")
+        : "<li>-</li>";
+
+      document.getElementById("shippingLabel").innerHTML = `
+        <div><strong>ผู้ส่ง:</strong> ${sender}</div>
+        <hr/>
+        <div><strong>ผู้รับ:</strong> ${buyer} (${phone})</div>
+        <div><strong>ที่อยู่:</strong> ${address}</div>
+        <div style="margin-top:8px;"><strong>รายการแพ็กสินค้า:</strong><ul>${itemsText}</ul></div>
+      `;
+    }
+
+    document.getElementById("labelForm").addEventListener("submit", e => {
+      e.preventDefault();
+      renderLabel();
+    });
+
+    loadProducts();
+    renderLabel();
+  </script>
+</body>
+</html>
